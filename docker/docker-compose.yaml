@@ -1,0 +1,25 @@
+---
+version: "3.8"
+
+secrets:
+  config_json:
+    file: ../secrets.json
+
+services:
+  foundry:
+    image: felddy/foundryvtt:release
+    hostname: foundry.mowen.com
+    init: true
+    volumes:
+      - type: bind
+        source: C:\Users\marti\AppData\Local\FoundryVTT 
+        target: /data
+    ports:
+      - target: 30000
+        published: 30001
+        protocol: tcp
+    secrets:
+      - source: config_json
+        target: config.json
+    environment:
+      - CONTAINER_PRESERVE_CONFIG=true
