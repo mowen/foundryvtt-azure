@@ -4,6 +4,14 @@ Requires the following envirionment variables to be defined in your Circle CI Pr
 
 ## Azure RM Service Principal Credentials
 
+Run the following Az CLI command to generate a Service Principal:
+
+```shell
+az ad sp create-for-rbac --scopes /subscriptions/<Subscription ID> --name <Service Principal Name>
+```
+
+More info: <https://learn.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli>
+
 - ARM_CLIENT_ID
 - ARM_CLIENT_SECRET
 - ARM_TENANT_ID

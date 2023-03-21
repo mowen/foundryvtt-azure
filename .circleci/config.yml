@@ -38,8 +38,7 @@ jobs:
           path: terraform
 
 workflows:
-  version: 2
-  terraform-plan-and-apply:
+  deploy-foundry:
     jobs:
       - terraform-plan
       - hold: 
@@ -49,7 +48,7 @@ workflows:
       - terraform-apply:
           requires:
             - hold
-  terraform-destroy-foundry:
+  destroy-foundry:
     jobs:
       - hold: 
           type: approval 
