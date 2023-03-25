@@ -11,7 +11,6 @@ terraform {
     storage_account_name = "mowentfstatestorage"
     container_name       = "tfstate"
     key                  = "prod.terraform.tfstate"
-    use_microsoft_graph  = true
   }
 }
 
