@@ -1,89 +1,93 @@
-# Config for Caddy taken from https://itnext.io/automatic-https-with-azure-container-instances-aci-4c4c8b03e8c9 
-
-resource "azurerm_storage_account" "caddy" {
-  name                      = "${local.storage_prefix}caddystorage"
-  resource_group_name       = azurerm_resource_group.foundry.name
-  location                  = azurerm_resource_group.foundry.location
-  account_tier              = "Standard"
-  account_replication_type  = "LRS"
-  enable_https_traffic_only = true
-}
-
-resource "azurerm_storage_share" "caddy" {
-  name                 = "${local.storage_prefix}caddyshare"
-  storage_account_name = azurerm_storage_account.caddy.name
-  quota                = 1
-}
-
-resource "azurerm_container_group" "foundry" {
-  name                = "${local.env_prefix}containers"
-  location            = azurerm_resource_group.foundry.location
+resource "azurerm_service_plan" "foundry" {
+  name                = "${local.env_prefix}appserviceplan"
   resource_group_name = azurerm_resource_group.foundry.name
-  ip_address_type     = "Public"
-  dns_name_label      = "foundry"
+  location            = azurerm_resource_group.foundry.location
   os_type             = "Linux"
+  sku_name            = "B1"
+}
+
+resource "azurerm_linux_web_app" "foundry" {
+  name                = "${local.env_prefix}webapp"
+  resource_group_name = azurerm_resource_group.foundry.name
+  location            = azurerm_service_plan.foundry.location
+  service_plan_id     = azurerm_service_plan.foundry.id
 
   depends_on = [
-    azurerm_storage_account.foundry
+    azurerm_virtual_network.foundry
   ]
 
-  container {
-    name   = "foundryvtt"
-    image  = "felddy/foundryvtt:release"
-    cpu    = "0.5"
-    memory = "1.5"
+  app_settings = {
+    "FOUNDRY_PROXY_PORT"         = "443"
+    "FOUNDRY_HOSTNAME"           = local.dns_name
+    "CONTAINER_PRESERVE_CONFIG"  = "true"
+    "DOCKER_REGISTRY_SERVER_URL" = "https://index.docker.io/v1"
+    "WEBSITES_PORT"              = "30000"
 
-    environment_variables = {
-      "CONTAINER_PRESERVE_CONFIG" = "true"
-      "FOUNDRY_PROXY_PORT"        = "443"
-      "FOUNDRY_HOSTNAME"          = local.dns_name
-    }
-
-    secure_environment_variables = {
-      "FOUNDRY_USERNAME"    = var.FOUNDRY_USERNAME
-      "FOUNDRY_PASSWORD"    = var.FOUNDRY_PASSWORD
-      "FOUNDRY_ADMIN_KEY"   = var.FOUNDRY_ADMIN_KEY
-      "FOUNDRY_LICENSE_KEY" = var.FOUNDRY_LICENSE_KEY
-    }
-
-    volume {
-      name                 = "foundry-data-mount"
-      storage_account_name = azurerm_storage_account.foundry.name
-      storage_account_key  = azurerm_storage_account.foundry.primary_access_key
-      share_name           = azurerm_storage_share.foundry.name
-      mount_path           = "/data"
-    }
+    "FOUNDRY_USERNAME"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.foundry_username.id})"
+    "FOUNDRY_PASSWORD"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.foundry_password.id})"
+    "FOUNDRY_ADMIN_KEY"   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.foundry_admin_key.id})"
+    "FOUNDRY_LICENSE_KEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.foundry_license_key.id})"
   }
 
-  container {
-    name   = "caddy"
-    image  = "caddy"
-    cpu    = "0.5"
-    memory = "0.5"
+  identity {
+    type = "SystemAssigned"
+  }
 
-    ports {
-      port     = 443
-      protocol = "TCP"
+  storage_account {
+    name         = "foundry-data-mount"
+    type         = "AzureFiles"
+    account_name = azurerm_storage_account.foundry.name
+    share_name   = azurerm_storage_share.foundry.name
+    mount_path   = "/data"
+    access_key   = azurerm_storage_account.foundry.primary_access_key
+  }
+
+  site_config {
+    application_stack {
+      docker_image     = "felddy/foundryvtt"
+      docker_image_tag = "release"
     }
-
-    ports {
-      port     = 80
-      protocol = "TCP"
-    }
-
-    volume {
-      name                 = "foundry-caddy-data"
-      mount_path           = "/data"
-      storage_account_name = azurerm_storage_account.caddy.name
-      storage_account_key  = azurerm_storage_account.caddy.primary_access_key
-      share_name           = azurerm_storage_share.caddy.name
-    }
-
-    commands = ["caddy", "reverse-proxy", "--from", local.dns_name, "--to", "localhost:30000"]
   }
 }
 
-data "azurerm_container_group" "foundry" {
-  name                = azurerm_container_group.foundry.name
+resource "azurerm_app_service_virtual_network_swift_connection" "foundry_app_subnet" {
+  app_service_id = azurerm_linux_web_app.foundry.id
+  subnet_id      = azurerm_subnet.app_subnet.id
+}
+
+data "azurerm_linux_web_app" "foundry" {
+  name                = azurerm_linux_web_app.foundry.name
   resource_group_name = azurerm_resource_group.foundry.name
+}
+
+resource "azurerm_key_vault_access_policy" "appservice" {
+  key_vault_id = azurerm_key_vault.foundry.id
+  tenant_id    = data.azurerm_linux_web_app.foundry.identity[0].tenant_id
+  object_id    = data.azurerm_linux_web_app.foundry.identity[0].principal_id
+
+  secret_permissions = [
+    "Get",
+    "List"
+  ]
+}
+
+resource "azurerm_app_service_custom_hostname_binding" "foundry" {
+  hostname            = local.dns_name
+  app_service_name    = azurerm_linux_web_app.foundry.name
+  resource_group_name = azurerm_resource_group.foundry.name
+}
+
+resource "azurerm_app_service_managed_certificate" "foundry" {
+  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.foundry.id
+}
+
+resource "azurerm_app_service_certificate_binding" "foundry" {
+  hostname_binding_id = azurerm_app_service_custom_hostname_binding.foundry.id
+  certificate_id      = azurerm_app_service_managed_certificate.foundry.id
+  ssl_state           = "SniEnabled"
+}
+
+output "custom_domain_verification_id" {
+  value     = azurerm_linux_web_app.foundry.custom_domain_verification_id
+  sensitive = true
 }

@@ -1,26 +1,8 @@
-variable "FOUNDRY_ADMIN_KEY" {
-  type      = string
-  sensitive = true
-}
-
-variable "FOUNDRY_PASSWORD" {
-  type      = string
-  sensitive = true
-}
-
-variable "FOUNDRY_USERNAME" {
-  type      = string
-  sensitive = true
-}
-
-variable "FOUNDRY_LICENSE_KEY" {
-  type      = string
-  sensitive = true
-}
-
 locals {
   env_prefix     = "mowen-foundry-"
   region         = "UK South"
   storage_prefix = "mowenfoundry"
   dns_name       = "foundry.martowen.com"
+  secrets_file   = "../secrets.json"
+  my_client_ips  = ["78.105.178.221"]
 }
